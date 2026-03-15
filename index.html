@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>鲈鱼の倒放空间🐟️</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f5f5f5;
+            color: #333;
+            line-height: 1.6;
+        }
+        
+        .container {
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+            color: #2c3e50;
+        }
+        
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin-bottom: 30px;
+            justify-content: center;
+        }
+        
+        button {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: all 0.3s ease;
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        
+        #recordBtn {
+            background-color: #e74c3c;
+            color: white;
+        }
+        
+        #recordBtn.recording {
+            background-color: #c0392b;
+            animation: pulse 1s infinite;
+        }
+        
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+        
+        #reverseBtn {
+            background-color: #3498db;
+            color: white;
+        }
+        
+        #exportBtn {
+            background-color: #27ae60;
+            color: white;
+        }
+        
+        .audio-section {
+            margin-bottom: 30px;
+        }
+        
+        .audio-section h2 {
+            margin-bottom: 15px;
+            color: #34495e;
+        }
+        
+        .audio-player {
+            width: 100%;
+            margin: 10px 0;
+        }
+        
+        .file-input {
+            margin: 20px 0;
+            text-align: center;
+        }
+        
+        .file-input input[type="file"] {
+            display: none;
+        }
+        
+        .file-input label {
+            display: inline-block;
+            padding: 12px 24px;
+            background-color: #9b59b6;
+            color: white;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: all 0.3s ease;
+        }
+        
+        .file-input label:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        
+        .error {
+            color: #e74c3c;
+            margin-top: 10px;
+            text-align: center;
+        }
+        
+        @media (max-width: 600px) {
+            .controls {
+                flex-direction: column;
+                align-items: center;
+            }
+            
+            button {
+                width: 100%;
+                max-width: 300px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>鲈鱼の倒放空间🐟️</h1>
+        
+        <div class="controls">
+            <button id="recordBtn">开始录音</button>
+            <button id="reverseBtn" disabled>倒放音频</button>
+            <button id="exportBtn" disabled>导出音频</button>
+        </div>
+        
+        <div class="audio-section">
+            <h2>原始录音</h2>
+            <audio id="originalAudio" class="audio-player" controls></audio>
+        </div>
+        
+        <div class="audio-section">
+            <h2>倒放录音</h2>
+            <audio id="reversedAudio" class="audio-player" controls></audio>
+        </div>
+        
+        <div class="file-input">
+            <label for="audioFile">导入音频文件</label>
+            <input type="file" id="audioFile" accept="audio/*">
+        </div>
+        
+        <div class="error" id="error"></div>
+    </div>
+    
+    <script>
+        let mediaRecorder;
+        let audioChunks = [];
+        let originalBlob;
+        let reversedBlob;
+        let isRecording = false;
+        
+        const recordBtn = document.getElementById('recordBtn');
+        const reverseBtn = document.getElementById('reverseBtn');
+        const exportBtn = document.getElementById('exportBtn');
+        const originalAudio = document.getElementById('originalAudio');
+        const reversedAudio = document.getElementById('reversedAudio');
+        const errorDiv = document.getElementById('error');
+        const audioFileInput = document.getElementById('audioFile');
+        
+        // 音频文件导入
+        audioFileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                originalBlob = file;
+                originalAudio.src = URL.createObjectURL(originalBlob);
+                reverseBtn.disabled = false;
+                exportBtn.disabled = true;
+                errorDiv.textContent = '';
+            }
+        });
+        
+        // 开始/停止录音
+        recordBtn.addEventListener('click', async () => {
+            try {
+                if (!isRecording) {
+                    // 开始录音
+                    const stream = await navigator.mediaDevices.getUserMedia({ 
+                        audio: {
+                            echoCancellation: true,
+                            noiseSuppression: true,
+                            autoGainControl: true
+                        }
+                    });
+                    
+                    // 创建音频上下文进行降噪处理
+                    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    const source = audioContext.createMediaStreamSource(stream);
+                    
+                    // 创建噪声抑制节点
+                    const noiseSuppressor = audioContext.createBiquadFilter();
+                    noiseSuppressor.type = 'highpass';
+                    noiseSuppressor.frequency.value = 200; // 过滤低频噪声
+                    
+                    // 创建增益节点
+                    const gainNode = audioContext.createGain();
+                    gainNode.gain.value = 1.2; // 适当增加增益
+                    
+                    // 连接音频处理链
+                    source.connect(noiseSuppressor);
+                    noiseSuppressor.connect(gainNode);
+                    
+                    // 创建新的媒体流
+                    const destination = audioContext.createMediaStreamDestination();
+                    gainNode.connect(destination);
+                    
+                    mediaRecorder = new MediaRecorder(destination.stream);
+                    
+                    mediaRecorder.ondataavailable = (e) => {
+                        audioChunks.push(e.data);
+                    };
+                    
+                    mediaRecorder.onstop = () => {
+                        originalBlob = new Blob(audioChunks, { type: 'audio/wav' });
+                        originalAudio.src = URL.createObjectURL(originalBlob);
+                        reverseBtn.disabled = false;
+                        exportBtn.disabled = true;
+                        audioChunks = [];
+                        stream.getTracks().forEach(track => track.stop());
+                        audioContext.close();
+                    };
+                    
+                    mediaRecorder.start();
+                    recordBtn.textContent = '停止录音';
+                    recordBtn.classList.add('recording');
+                    isRecording = true;
+                    errorDiv.textContent = '';
+                } else {
+                    // 停止录音
+                    mediaRecorder.stop();
+                    recordBtn.textContent = '开始录音';
+                    recordBtn.classList.remove('recording');
+                    isRecording = false;
+                }
+            } catch (err) {
+                errorDiv.textContent = '无法访问麦克风: ' + err.message;
+                console.error(err);
+            }
+        });
+        
+        // 倒放音频
+        reverseBtn.addEventListener('click', async () => {
+            try {
+                const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                const arrayBuffer = await originalBlob.arrayBuffer();
+                const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+                
+                // 创建倒放的音频数据
+                const reversedBuffer = audioContext.createBuffer(
+                    audioBuffer.numberOfChannels,
+                    audioBuffer.length,
+                    audioBuffer.sampleRate
+                );
+                
+                for (let channel = 0; channel < audioBuffer.numberOfChannels; channel++) {
+                    const inputData = audioBuffer.getChannelData(channel);
+                    const outputData = reversedBuffer.getChannelData(channel);
+                    
+                    for (let i = 0; i < inputData.length; i++) {
+                        outputData[i] = inputData[inputData.length - 1 - i];
+                    }
+                }
+                
+                // 将倒放的音频数据转换为Blob
+                const offlineContext = new OfflineAudioContext(
+                    reversedBuffer.numberOfChannels,
+                    reversedBuffer.length,
+                    reversedBuffer.sampleRate
+                );
+                
+                const source = offlineContext.createBufferSource();
+                source.buffer = reversedBuffer;
+                source.connect(offlineContext.destination);
+                source.start();
+                
+                const renderedBuffer = await offlineContext.startRendering();
+                const wavBlob = bufferToWav(renderedBuffer);
+                reversedBlob = wavBlob;
+                
+                reversedAudio.src = URL.createObjectURL(reversedBlob);
+                exportBtn.disabled = false;
+                errorDiv.textContent = '';
+            } catch (err) {
+                errorDiv.textContent = '倒放失败: ' + err.message;
+                console.error(err);
+            }
+        });
+        
+        // 导出音频
+        exportBtn.addEventListener('click', () => {
+            if (reversedBlob) {
+                const url = URL.createObjectURL(reversedBlob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'reversed-audio.wav';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            }
+        });
+        
+        // 将AudioBuffer转换为WAV格式
+        function bufferToWav(buffer) {
+            const numOfChannels = buffer.numberOfChannels;
+            const length = buffer.length * numOfChannels * 2;
+            const result = new ArrayBuffer(44 + length);
+            const view = new DataView(result);
+            
+            // RIFF标识符
+            writeString(view, 0, 'RIFF');
+            view.setUint32(4, 36 + length, true);
+            writeString(view, 8, 'WAVE');
+            
+            // fmt子块
+            writeString(view, 12, 'fmt ');
+            view.setUint32(16, 16, true);
+            view.setUint16(20, 1, true); // PCM格式
+            view.setUint16(22, numOfChannels, true);
+            view.setUint32(24, buffer.sampleRate, true);
+            view.setUint32(28, buffer.sampleRate * numOfChannels * 2, true);
+            view.setUint16(32, numOfChannels * 2, true);
+            view.setUint16(34, 16, true); // 16位
+            
+            // data子块
+            writeString(view, 36, 'data');
+            view.setUint32(40, length, true);
+            
+            // 写入音频数据
+            let offset = 44;
+            const channels = [];
+            for (let i = 0; i < numOfChannels; i++) {
+                channels.push(buffer.getChannelData(i));
+            }
+            
+            for (let i = 0; i < buffer.length; i++) {
+                for (let channel = 0; channel < numOfChannels; channel++) {
+                    const sample = Math.max(-1, Math.min(1, channels[channel][i]));
+                    view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7FFF, true);
+                    offset += 2;
+                }
+            }
+            
+            return new Blob([result], { type: 'audio/wav' });
+        }
+        
+        function writeString(view, offset, string) {
+            for (let i = 0; i < string.length; i++) {
+                view.setUint8(offset + i, string.charCodeAt(i));
+            }
+        }
+    </script>
+</body>
+</html>
